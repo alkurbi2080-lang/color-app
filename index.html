@@ -69,7 +69,6 @@
 <body>
   <header>
     <h1>
-      <!-- cute mascot -->
       <svg class="mascot" viewBox="0 0 64 64" aria-hidden="true">
         <defs><linearGradient id="g" x1="0" x2="1">
           <stop offset="0%" stop-color="#FF7AC3"/><stop offset="100%" stop-color="#60A5FA"/>
@@ -174,10 +173,12 @@
     const celeText  = document.getElementById('celeText');
 
     let stream=null, rafId=null, lastColor="";
-    let lastTriggerAt = 0; // cooldown
+    let lastTriggerAt = 0;             // cooldown
     let stableColor = ""; let sameCount = 0; // stability
-    let wakeLock = null; // optional: keep screen awake
+    let wakeLock = null;
+    let noColorCount = 0;              // counts frames with no/other color
 
+    const TARGETS = ['RED','GREEN','BLUE','YELLOW','PURPLE'];
     const messages = {
       YELLOW: "يا سلام! تبدو سعيدًا 😊 احكِ لنا ما الذي أسعدك اليوم.",
       BLUE:   "يبدو أنك حزين 😢 — الحزن طبيعي. تعال نتحادث قليلًا.",
@@ -230,8 +231,7 @@
       o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime+0.45);
     }
 
-    // popup stays until tap
-    function celebrate(color){
+    function openPopup(color){
       const map = {RED:'😡', BLUE:'😢', YELLOW:'😊', GREEN:'🤢', PURPLE:'🫣', WHITE:'✨', BLACK:'🌙'};
       celeEmoji.textContent = map[color] || '🎉';
       celeTitle.textContent = 'أحسنت يا بطل/ة!';
@@ -239,8 +239,9 @@
       cele.classList.add('active');
       playChime();
       confettiOnce();
-      const closeOnce = ()=>{ cele.classList.remove('active'); cele.removeEventListener('click', closeOnce); };
-      cele.addEventListener('click', closeOnce);
+    }
+    function closePopup(){
+      cele.classList.remove('active');
     }
 
     function confettiOnce(){
@@ -273,13 +274,47 @@
         swatch.style.background = `rgb(${R|0},${G|0},${B|0})`;
         colorNameEl.textContent = `${colorNow} · H:${h|0} S:${s|0}% V:${v|0}%`;
 
+        // stability tracking
         if(colorNow === stableColor){ sameCount++; } else { stableColor = colorNow; sameCount = 1; }
-        const needStableFrames = 8; const cooldown = 800;
-        if(sameCount >= needStableFrames && (Date.now() - lastTriggerAt) > cooldown){
+
+        // --- TRIGGER when stable TARGET color detected ---
+        const needStableFrames = 8;
+        const cooldown = 800;
+        const isTarget = TARGETS.includes(colorNow);
+
+        if(isTarget && sameCount >= needStableFrames && (Date.now() - lastTriggerAt) > cooldown){
           msgEl.textContent = messages[colorNow] || messages.UNKNOWN;
-          if(colorNow!==lastColor && ['RED','GREEN','BLUE','YELLOW','PURPLE'].includes(colorNow)){
-            celebrate(colorNow); lastColor=colorNow; lastTriggerAt=Date.now();
+          if(colorNow!==lastColor){
+            openPopup(colorNow);
+            lastColor=colorNow;
+            lastTriggerAt=Date.now();
           }
+          noColorCount = 0; // reset the "lost color" counter
+        }
+
+        // --- AUTO-HIDE when color no longer visible ---
+        // Count frames where we *don't* see the same target color
+        // Conditions that count as "lost":
+        //   - not a target (UNKNOWN/WHITE/BLACK), or
+        //   - target but different from lastColor, or
+        //   - unstable (sameCount < 2)
+        const lostFrame =
+          !isTarget ||
+          (isTarget && lastColor && colorNow !== lastColor) ||
+          sameCount < 2;
+
+        if (lostFrame) {
+          noColorCount++;
+        } else {
+          // still seeing the same color; keep it at 0
+          noColorCount = 0;
+        }
+
+        // After N consecutive "lost" frames, hide popup
+        const LOST_FRAMES_TO_HIDE = 12; // ~12 frames ≈ ~0.6s at 20fps (tune if needed)
+        if (noColorCount >= LOST_FRAMES_TO_HIDE) {
+          closePopup();
+          lastColor = ""; // allow next color to retrigger cleanly
         }
       }
       rafId = requestAnimationFrame(loop);
@@ -287,14 +322,12 @@
 
     async function start(){
       try{
-        // request camera
         stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height:{ ideal: 720 } },
           audio: false
         });
         video.srcObject = stream; await video.play();
 
-        // optional: keep screen awake where supported
         try{
           if ('wakeLock' in navigator) { wakeLock = await navigator.wakeLock.request('screen'); }
         }catch(e){ /* ignore */ }
@@ -311,6 +344,11 @@
       if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
       video.srcObject=null;
       if(wakeLock){ try{ wakeLock.release(); }catch(e){} wakeLock=null; }
+      closePopup();
+      lastColor = "";
+      noColorCount = 0;
+      sameCount = 0;
+      stableColor = "";
     }
 
     btnStart.onclick = start; btnStop.onclick = stop;
