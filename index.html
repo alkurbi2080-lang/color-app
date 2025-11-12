@@ -31,21 +31,18 @@
 
     main{ padding:14px; display:grid; gap:14px; max-width:980px; margin:0 auto }
     .card{ background:var(--card); border:2px solid var(--border); border-radius:22px; padding:14px; box-shadow:0 6px 20px #00000010 }
-    .controls{ display:flex; flex-wrap:wrap; gap:10px }
+    .controls{ display:flex; flex-wrap:wrap; gap:10px; align-items:center }
     button{ border:none; border-radius:16px; padding:12px 16px; font-size:18px; cursor:pointer; transition:.15s transform }
     button:active{ transform:scale(.98) }
     .btn-primary{ background:linear-gradient(90deg,var(--accent),#FFB86C); color:#2b0b1e }
     .btn{ background:#F1F5F9; color:#111827 }
-    .pill{ display:inline-flex; gap:8px; align-items:center; padding:10px 12px; border-radius:999px; background:#F9FAFB; border:2px dashed var(--border) }
-    .swatch{ width:22px; height:22px; border-radius:8px; border:2px solid #0002 }
+    .pill{ display:inline-flex; gap:8px; align-items:center; padding:8px 10px; border-radius:999px; background:#F9FAFB; border:2px dashed var(--border); font-size:14px }
+    .swatch{ width:18px; height:18px; border-radius:6px; border:2px solid #0002 }
 
     .video-wrap{ position:relative; border-radius:22px; overflow:hidden; border:2px solid var(--border); background:#000 }
     video{ width:100%; height:auto; display:block }
     canvas{ display:none }
     .roi{ position:absolute; border:4px dashed #fff; inset:auto; left:50%; top:50%; transform:translate(-50%,-50%); width:min(50vmin,360px); height:min(50vmin,360px); border-radius:20px; box-shadow:0 0 0 6px #00000030 inset }
-
-    .msg{ font-size:22px; line-height:1.7; margin:8px 0 0 }
-    .msg .big{ font-weight:800 }
 
     /* BIG popup */
     .celebrate{ position:fixed; inset:0; display:none; place-items:center; background:rgba(0,0,0,.45); z-index:50 }
@@ -81,30 +78,6 @@
       </div>
 
       <canvas id="canvas"></canvas>
-
-      <p class="msg" id="msg">
-        ⭐️ <span class="big">هيا يا بطل/ة!</span> ضع/ي الكرة داخل الإطار المنقّط ليكتشف اللون ويعرض رسالة بالعربية.
-      </p>
-    </section>
-
-    <!-- Keep only tuning sliders -->
-    <section class="card grid">
-      <div>
-        <label>حجم منطقة القياس</label>
-        <input type="range" id="roiSize" min="30" max="80" value="50" />
-      </div>
-      <div>
-        <label>الحد الأدنى للتشبع (S)</label>
-        <input type="range" id="minSat" min="0" max="100" value="25" />
-      </div>
-      <div>
-        <label>الحد الأدنى للإضاءة (V)</label>
-        <input type="range" id="minVal" min="0" max="100" value="20" />
-      </div>
-      <div>
-        <label>الحد الأعلى للإضاءة (للأسود)</label>
-        <input type="range" id="maxValBlack" min="0" max="100" value="18" />
-      </div>
     </section>
   </main>
 
@@ -120,18 +93,13 @@
     const btnStart = document.getElementById('btnStart');
     const btnStop = document.getElementById('btnStop');
     const roiBox = document.getElementById('roi');
-    const roiSize = document.getElementById('roiSize');
-    const minSat = document.getElementById('minSat');
-    const minVal = document.getElementById('minVal');
-    const maxValBlack = document.getElementById('maxValBlack');
     const swatch = document.getElementById('swatch');
     const colorNameEl = document.getElementById('colorName');
 
     const cele = document.getElementById('cele');
     const celeText  = document.getElementById('celeText');
 
-    let stream=null, rafId=null, lastColor="";
-    let lastTriggerAt = 0, stableColor = "", sameCount = 0, noColorCount = 0;
+    let stream=null, lastColor="", lastTriggerAt=0, stableColor="", sameCount=0, noColorCount=0;
 
     // Only the 5 target colors
     const TARGETS = ['RED','GREEN','BLUE','YELLOW','PURPLE'];
@@ -158,9 +126,9 @@
       return {h:h*360, s:s*100, v:v*100};
     }
 
-    // Return one of the five colors, or "NONE" (we do NOT use BLACK/WHITE/UNKNOWN)
+    // Classifier returns one of the 5 colors or 'NONE'
     function classify(h,s,v){
-      const sMin = +minSat.value, vMaxBlack = +maxValBlack.value, vMin = +minVal.value;
+      const sMin = 25, vMin = 20, vMaxBlack = 18; // fixed defaults since sliders were removed
       if (v <= vMaxBlack || s < sMin || v < vMin) return 'NONE';
       if ((h>=0 && h<20) || (h>=340 && h<=360)) return 'RED';
       if (h>=20 && h<65)   return 'YELLOW';
@@ -178,12 +146,16 @@
       if(vw>0 && vh>0){
         canvas.width = vw; canvas.height = vh;
         ctx.drawImage(video,0,0,vw,vh);
-        const r = Math.min(vw,vh) * (+roiSize.value/100);
+
+        // fixed ROI: 50vmin (since the slider is gone)
+        const r = Math.min(vw,vh) * 0.5;
         const x = vw/2 - r/2, y = vh/2 - r/2;
+
         const img = ctx.getImageData(x,y,r,r);
         let R=0,G=0,B=0,count=0, data=img.data;
         for(let i=0;i<data.length;i+=4){ R+=data[i]; G+=data[i+1]; B+=data[i+2]; count++; }
         R/=count; G/=count; B/=count;
+
         const {h,s,v} = rgb2hsv(R,G,B);
         const colorNow = classify(h,s,v);
 
@@ -204,11 +176,10 @@
           noColorCount = 0;
         }
 
-        // hide when not seeing the last color anymore
         const lostFrame = (colorNow==='NONE') || (lastColor && colorNow !== lastColor) || sameCount < 2;
         if (lostFrame) noColorCount++; else noColorCount = 0;
 
-        const LOST_FRAMES_TO_HIDE = 12; // ~0.6s at ~20fps
+        const LOST_FRAMES_TO_HIDE = 12; // ~0.6s
         if (noColorCount >= LOST_FRAMES_TO_HIDE) { closePopup(); lastColor=""; }
       }
       requestAnimationFrame(loop);
@@ -230,8 +201,13 @@
     }
 
     btnStart.onclick = start; btnStop.onclick = stop;
-    roiSize.addEventListener('input', ()=>{ const v=+roiSize.value; roiBox.style.width=roiBox.style.height=`min(${v}vmin, ${v*7.5}px)`; });
-    roiSize.dispatchEvent(new Event('input'));
+
+    // fix ROI size since slider removed
+    (function setFixedROI(){
+      const v = 50; // vmin
+      const px = v*7.5; // match earlier scale
+      roiBox.style.width = roiBox.style.height = `min(${v}vmin, ${px}px)`;
+    })();
 
     if('serviceWorker' in navigator){
       window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(console.error));
